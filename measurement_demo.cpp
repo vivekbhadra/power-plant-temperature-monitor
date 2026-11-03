@@ -125,7 +125,7 @@ int main()
             {
                 check_measurement(measure, THRESHOLD);
                 sleep(5);
-            } // .push_back() vs emplace_back()
+            }
         }
     }
     catch (const std::exception& error)
