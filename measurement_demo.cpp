@@ -8,6 +8,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <unistd.h>
+#include <vector>
 
 /**
  * @brief A validated temperature reading associated with equipment.
@@ -96,19 +98,35 @@ void print_measurement(const Measurement& measurement)
               << " deg C\n";
 }
 
+void check_measurement(const Measurement& measurement, const int threshold)
+{
+    if (measurement.temperature_celsius() >= threshold)
+        print_measurement(measurement);
+    else
+        std::cerr << "Measurement temperature does not cross threshold value.\n";
+}
 /**
  * @brief Runs the temperature measurement demonstration.
  * @return 0 if the demonstration succeeds; 1 if an exception is caught.
  */
 int main()
 {
+    constexpr int THRESHOLD{85};
     try
     {
-        const Measurement motor_reading{"motor-01", 12, 85.0};
-        const Measurement pump_reading{"pump-02", 13, 64.0};
-
-        print_measurement(motor_reading);
-        print_measurement(pump_reading);
+        const std::vector<Measurement> measurements{{"motor-01", 12, 85.0},
+                                                    {"pump-02", 13, 64.0},
+                                                    {"generator-01", 14, 92.5},
+                                                    {"motor-01", 18, 88.0},
+                                                    {"pump-02", 21, 79.5}};
+        while (true)
+        {
+            for (const auto& measure : measurements)
+            {
+                check_measurement(measure, THRESHOLD);
+                sleep(5);
+            } // .push_back() vs emplace_back()
+        }
     }
     catch (const std::exception& error)
     {
