@@ -4,10 +4,12 @@
  */
 
 #include <cmath>
+#include <cstddef>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 /**
  * @brief A validated temperature reading associated with equipment.
@@ -97,18 +99,81 @@ void print_measurement(const Measurement& measurement)
 }
 
 /**
- * @brief Runs the temperature measurement demonstration.
+ * @brief Determines whether a measurement exceeds the alarm threshold.
+ * @param measurement The measurement to evaluate.
+ * @param threshold_celsius Alarm threshold in degrees Celsius.
+ * @return true if the measured temperature is strictly above the threshold;
+ *         otherwise, false.
+ */
+bool exceeds_threshold(const Measurement& measurement, double threshold_celsius)
+{
+    return measurement.temperature_celsius() > threshold_celsius;
+}
+
+/**
+ * @brief Prints an alarm for a threshold-exceeding measurement.
+ * @param measurement The measurement that exceeded the threshold.
+ * @param threshold_celsius Alarm threshold in degrees Celsius.
+ */
+void report_alarm(const Measurement& measurement, double threshold_celsius)
+{
+    std::cout << "ALARM: " << measurement.equipment_id() << " reached " << std::fixed
+              << std::setprecision(1) << measurement.temperature_celsius()
+              << " deg C; threshold is " << threshold_celsius << " deg C\n";
+}
+
+/**
+ * @brief Counts measurements that exceed the alarm threshold.
+ * @param measurements Measurements to examine.
+ * @param threshold_celsius Alarm threshold in degrees Celsius.
+ * @return The number of measurements strictly above the threshold.
+ */
+std::size_t count_exceedances(const std::vector<Measurement>& measurements,
+                              double threshold_celsius)
+{
+    std::size_t count{0};
+
+    for (const auto& measurement : measurements)
+    {
+        if (exceeds_threshold(measurement, threshold_celsius))
+        {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+/**
+ * @brief Processes recorded measurements and reports threshold exceedances.
  * @return 0 if the demonstration succeeds; 1 if an exception is caught.
  */
 int main()
 {
     try
     {
-        const Measurement motor_reading{"motor-01", 12, 85.0};
-        const Measurement pump_reading{"pump-02", 13, 64.0};
+        const std::vector<Measurement> measurements{
+            {"motor-01", 12, 85.0},
+            {"pump-02", 13, 64.0},
+            {"generator-01", 14, 92.5},
+            {"motor-01", 18, 88.0},
+            {"pump-02", 21, 79.5}
+        };
 
-        print_measurement(motor_reading);
-        print_measurement(pump_reading);
+        const double threshold_celsius{80.0};
+
+        for (const auto& measurement : measurements)
+        {
+            print_measurement(measurement);
+
+            if (exceeds_threshold(measurement, threshold_celsius))
+            {
+                report_alarm(measurement, threshold_celsius);
+            }
+        }
+
+        std::cout << "Threshold exceedances: "
+                  << count_exceedances(measurements, threshold_celsius) << '\n';
     }
     catch (const std::exception& error)
     {
