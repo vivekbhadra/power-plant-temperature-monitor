@@ -9,7 +9,41 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
+
+class ThresholdConfig
+{
+public:
+    ThresholdConfig(double default_threshold_celsius,
+                    std::unordered_map<std::string, double> equipment_thresholds)
+        : m_default_threshold(default_threshold_celsius),
+          m_equipment_thresholds{std::move(equipment_thresholds)}
+    {
+        if (!std::isfinite(m_default_threshold))
+            throw std::invalid_argument("Threshold cannot be an infinite value.");
+        for (const auto& [key, value] : equipment_thresholds)
+        {
+            if (key.empty())
+                throw std::invalid_argument("Equipment ID cannot be empty.");
+            if (!std::isfinite(value))
+                throw std::invalid_argument("Threshold cannot be an infinite value.");
+        }
+    }
+
+    double get_threshold(std::string equipment_id) const
+    {
+        auto it = m_equipment_thresholds.find(equipment_id);
+        if (it != m_equipment_thresholds.end())
+            return it->second;
+
+        return m_default_threshold;
+    }
+
+private:
+    double m_default_threshold;
+    std::unordered_map<std::string, double> m_equipment_thresholds;
+};
 
 /**
  * @brief A validated temperature reading associated with equipment.
@@ -111,18 +145,6 @@ bool exceeds_threshold(const Measurement& measurement, double threshold_celsius)
 }
 
 /**
- * @brief Prints an alarm for a threshold-exceeding measurement.
- * @param measurement The measurement that exceeded the threshold.
- * @param threshold_celsius Alarm threshold in degrees Celsius.
- */
-void report_alarm(const Measurement& measurement, double threshold_celsius)
-{
-    std::cout << "ALARM: " << measurement.equipment_id() << " reached " << std::fixed
-              << std::setprecision(1) << measurement.temperature_celsius()
-              << " deg C; threshold is " << threshold_celsius << " deg C\n";
-}
-
-/**
  * @brief Counts measurements that exceed the alarm threshold.
  * @param measurements Measurements to examine.
  * @param threshold_celsius Alarm threshold in degrees Celsius.
@@ -143,7 +165,57 @@ std::size_t count_exceedances(const std::vector<Measurement>& measurements,
 
     return count;
 }
+std::vector<Measurement> createMeasurements()
+{
+    return {{"motor-01", 12, 85.0},
+            {"pump-02", 13, 64.0},
+            {"generator-01", 14, 92.5},
+            {"motor-01", 18, 88.0},
+            {"pump-02", 21, 79.5}};
+}
+ThresholdConfig createGlobalConfig()
+{
+    return ThresholdConfig{80.0, {{"pump-02", 70.0}, {"generator-01", 75.0}}};
+}
 
+class AlarmController
+{
+public:
+    AlarmController(std::vector<Measurement> measurements, ThresholdConfig config)
+        : m_measurements(measurements),
+          m_config(config)
+    {
+    }
+
+    void monitor()
+    {
+        processMeasurements();
+    }
+
+private:
+    void processMeasurements()
+    {
+        for (const auto& measurement : m_measurements)
+        {
+            print_measurement(measurement);
+
+            if (exceeds_threshold(measurement, m_config.get_threshold(measurement.equipment_id())))
+            {
+                report_alarm(measurement, m_config.get_threshold(measurement.equipment_id()));
+            }
+        }
+    }
+
+    void report_alarm(const Measurement& measurement, double threshold_celsius)
+    {
+        std::cout << "ALARM: " << measurement.equipment_id() << " reached " << std::fixed
+                  << std::setprecision(1) << measurement.temperature_celsius()
+                  << " deg C; threshold is " << threshold_celsius << " deg C\n";
+    }
+
+    std::vector<Measurement> m_measurements;
+    ThresholdConfig m_config;
+};
 /**
  * @brief Processes recorded measurements and reports threshold exceedances.
  * @return 0 if the demonstration succeeds; 1 if an exception is caught.
@@ -152,28 +224,8 @@ int main()
 {
     try
     {
-        const std::vector<Measurement> measurements{
-            {"motor-01", 12, 85.0},
-            {"pump-02", 13, 64.0},
-            {"generator-01", 14, 92.5},
-            {"motor-01", 18, 88.0},
-            {"pump-02", 21, 79.5}
-        };
-
-        const double threshold_celsius{80.0};
-
-        for (const auto& measurement : measurements)
-        {
-            print_measurement(measurement);
-
-            if (exceeds_threshold(measurement, threshold_celsius))
-            {
-                report_alarm(measurement, threshold_celsius);
-            }
-        }
-
-        std::cout << "Threshold exceedances: "
-                  << count_exceedances(measurements, threshold_celsius) << '\n';
+        AlarmController controller{createMeasurements(), createGlobalConfig()};
+        controller.monitor();
     }
     catch (const std::exception& error)
     {
@@ -183,3 +235,6 @@ int main()
 
     return 0;
 }
+
+// think of an object with threshold as a parameter
+//
