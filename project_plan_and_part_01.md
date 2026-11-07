@@ -1,28 +1,103 @@
 # Power plant temperature monitor
 
-Repository name: `power-plant-temperature-monitor`
+Repository: `power-plant-temperature-monitor`  
+Language: C++17  
+Plan updated: 7 November 2026
 
-Build a command-line C++ prototype for monitoring equipment temperatures in a simulated power plant environment and raising an alarm when a reading exceeds a user-defined threshold.
+Build a command-line application that processes recorded equipment temperatures in a simulated power plant and reports readings that exceed configured alarm thresholds.
 
-The completed first version will read a threshold from a configuration file at startup, process recorded measurements, report invalid records, display threshold exceedances and produce a summary for each equipment ID. It will run on a PC using sample data.
+The current prototype uses measurements and thresholds defined in C++ source code. The planned application will read both from files, report invalid input, produce per-equipment statistics, and include automated tests. A threshold exceedance currently produces a terminal message; there is no alarm state, acknowledgment, or persistence mechanism.
 
 ## Project development plan
 
-We will build the application in small, working stages. Each stage extends the previous one.
+The work is divided into stages that leave the application in a runnable state. The status is based on the source reviewed for this plan, not on unverified repository commits or previous lesson attendance.
 
-The first version uses one configured temperature threshold for all equipment. An alarm is a terminal message for each reading strictly above that threshold.
-
-| Stage | Work | Working result |
+| Stage | Scope and deliverable | Status |
 |---|---|---|
-| 1. Represent a measurement | Create a `Measurement` class, construct objects and display their values | A compilable program using two measurements |
-| 2. Process several measurements | Introduce `std::vector`, loops and a threshold comparison function | Display an alarm for each reading above a temporary threshold |
-| 3. Introduce the project build | Separate headers and source files; add CMake and automated tests | Build and test a small multi-file application |
-| 4. Load configuration | Read and validate the temperature threshold from a configuration file | Change the threshold without recompiling |
-| 5. Load recorded measurements | Parse the agreed CSV format; report line numbers and invalid records | Process measurements from a file |
-| 6. Produce equipment summaries | Group measurements and calculate count, minimum, maximum, mean and exceedance count | Display a summary for each equipment ID |
-| 7. Complete and present | Add integration tests, sample files, documentation and a demonstration | A GitHub project the student can explain and demonstrate |
+| 1. Represent measurements | Implement `Measurement`, constructor validation, read-only accessors and terminal output | **Implemented and demonstrated** |
+| 2. Process multiple readings | Store readings in `std::vector<Measurement>`; iterate, compare against thresholds, print alarms and count exceedances | **Implemented and demonstrated** |
+| 3. Introduce threshold configuration and a controller | Add `ThresholdConfig`, equipment-specific overrides and `AlarmController`; move processing behind the controller's public interface | **Implemented in a single-file example; compiled and run** |
+| 4. Establish a multi-file build and tests | Extract class declarations and implementations into suitable files; configure CMake; add repeatable automated tests | **Outstanding** |
+| 5. Read threshold configuration | Define a small configuration-file format; parse and validate a default threshold and optional equipment overrides | **Outstanding** |
+| 6. Read recorded measurements | Define a CSV schema; validate input, report faulty line numbers and apply an explicit invalid-record policy | **Outstanding** |
+| 7. Produce equipment summaries | Report count, minimum, maximum, mean and number of exceedances for each equipment ID | **Outstanding** |
+| 8. Verify and present the application | Add integration tests, sample input files, a README and a repeatable command-line demonstration | **Outstanding** |
 
-The temporary threshold in stage 2 lets us develop the comparison separately. Stage 4 replaces it with the configuration-file value. Each stage can be taught over one or more lessons, depending on the student's progress.
+## Progress recorded so far
+
+### Stage 1: Measurement representation
+
+The `Measurement` class holds an equipment identifier (`std::string`), a timestamp (`int`, measured in elapsed seconds) and a temperature (`double`, in degrees Celsius). Its constructor rejects empty identifiers, negative timestamps, and non-finite temperatures. Read-only accessors expose the values without allowing callers to modify the private data members.
+
+The original `measurement_demo.cpp` constructs two measurements and prints their values. Its full lesson is preserved in Part 1 below.
+
+### Stage 2: Multiple measurements and threshold checking
+
+The expanded demonstration stores five readings in a `std::vector<Measurement>`, including multiple readings for the same equipment. A range-based `for` loop processes each measurement. A threshold exceedance is defined as `temperature_celsius > threshold_value`: a reading exactly equal to the threshold does not trigger an alarm.
+
+The example prints each measurement, reports threshold exceedances and computes a total count. A measurement count is not an equipment count: two above-threshold readings from the same equipment contribute two exceedances.
+
+### Stage 3: ThresholdConfig and AlarmController
+
+`ThresholdConfig` stores a default threshold and equipment-specific overrides in an `std::unordered_map<std::string, double>`. It validates the threshold values and configured IDs. `get_threshold()` selects an override using `find()`, or returns the default when none exists.
+
+The latest single-file example, `measurement_demo_central_controller.cpp`, introduces `AlarmController`. The controller owns its `std::vector<Measurement>` and `ThresholdConfig` members. Its public functions, `process_measurements()` and `count_exceedances()`, use private helpers to format readings, compare temperatures and print alarm messages. `main()` constructs the controller and calls those two public functions.
+
+**Verification performed for this update:** The controller example compiled with GCC in C++17 mode using `-Wall -Wextra -Wpedantic -Werror`. Running it produced two alarms, for `generator-01` at 92.5 °C against 90.0 °C and `motor-01` at 88.0 °C against 86.0 °C, followed by `Threshold exceedances: 2`. This is a successful demonstration run, not an automated test suite.
+
+### C++ topics covered alongside implementation
+
+The exercises and discussions have addressed constructor member initializer lists, `const` member functions, references to `const`, pass-by-value and `std::move`, vector element storage and initializer-list construction. The difference between `std::unordered_map::find()` and `contains()` was also covered. `contains()` requires C++20; the C++17 implementation uses `find()` because it needs the associated threshold value.
+
+## Next work: stage 4
+
+**Goal:** Turn the verified single-file example into a maintainable multi-file project without changing its observable behavior.
+
+Suggested initial structure (to be created, not an existing verified directory tree):
+
+```text
+power-plant-temperature-monitor/
+├── CMakeLists.txt
+├── include/
+│   ├── alarm_controller.h
+│   ├── measurement.h
+│   └── threshold_config.h
+├── src/
+│   ├── alarm_controller.cpp
+│   ├── measurement.cpp
+│   ├── threshold_config.cpp
+│   └── main.cpp
+└── tests/
+    └── ...
+```
+
+Move class declarations into headers and nontrivial function definitions into source files. Keep sample-data construction in the demonstration program for now. Configure CMake for C++17 and enable compiler warnings. Introduce a test executable and register it with CTest; the test framework can be selected when implementing the tests.
+
+Stage 4 is complete when a clean configure-and-build succeeds and automated checks cover:
+
+- Rejection of empty equipment IDs, negative timestamps, NaN and infinite temperatures.
+- Rejection of empty override keys and non-finite configured thresholds.
+- Selection of default and equipment-specific thresholds.
+- No alarm when a temperature equals its threshold.
+- The expected two exceedances for the five sample measurements, including repeated equipment IDs.
+
+Tests of terminal output can be added separately if retaining its exact format is a requirement.
+
+## Remaining stages and acceptance criteria
+
+**Stage 5: Configuration file.** Specify a format before implementing a parser. Support one default threshold and zero or more equipment overrides. Define how duplicate IDs, missing fields, malformed numbers and unreadable files are handled. The stage passes when editing the input file changes threshold behavior without recompiling, and invalid configuration produces a useful diagnostic and a nonzero exit status.
+
+**Stage 6: Recorded measurements.** Agree on a CSV header and field conventions, including how equipment IDs are represented and how timestamps are interpreted. Validate field counts, timestamps, temperatures and identifiers before constructing `Measurement` objects. Decide explicitly whether a faulty line stops processing or is reported and skipped. The stage passes when the application processes a valid sample file and reports malformed input with line numbers in accordance with that policy.
+
+**Stage 7: Per-equipment summaries.** Aggregate readings by equipment ID and report measurement count, minimum, maximum, mean temperature and exceedance count. Define whether the summaries include only accepted records and how empty input is displayed. The stage passes when values can be checked by hand against a small sample containing repeated equipment IDs.
+
+**Stage 8: Verification and presentation.** Add end-to-end tests for configuration loading, measurement loading, alarms and summaries. Provide valid and invalid sample files, document build and run commands, and prepare a demonstration from a clean checkout. The stage passes when the documented commands reproduce the expected results.
+
+## Current boundary
+
+The verified demonstration uses source-defined data. It does not establish configuration-file parsing, CSV input, per-equipment statistical summaries, a CMake build or automated test coverage. These remain planned work. No claim is made here about which files have been committed or pushed to GitHub.
+
+---
 
 ## Part 1: Represent one measurement
 
@@ -251,6 +326,6 @@ Part 1 is complete when you can:
 - Follow the error path for invalid constructor arguments.
 - Distinguish a recorded measurement from the equipment that produced it.
 
-## Next stage
+## Where this lesson leads
 
-Part 2 will store several measurements in a `std::vector`, examine them with a loop and display alarms for temperatures above a temporary threshold. The configuration-file reader will supply that threshold in stage 4.
+Part 1 introduces the `Measurement` class. The subsequent examples extend it to a vector of readings, threshold selection and alarm processing. Those developments are recorded in the progress section above. The Part 1 source code remains unchanged so that the progression from the initial example is clear.
