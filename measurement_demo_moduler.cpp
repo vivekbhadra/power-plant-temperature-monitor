@@ -1,6 +1,7 @@
 /**
- * @file measurement_demo.cpp
- * @brief Demonstrates validating and printing equipment temperature readings.
+ * @file measurement_demo_moduler.cpp
+ * @brief Demonstrates validating and processing equipment temperature readings in a modular
+ * structure.
  */
 
 #include <cmath>
@@ -14,30 +15,32 @@
 #include <vector>
 
 /**
- * @brief Stores the default alarm threshold and equipment-specific overrides.
+ * @brief Stores the default threshold and equipment-specific thresholds.
  */
-class MonitorConfig
+class ThresholdConfig
 {
 public:
     /**
-     * @brief Constructs and validates the monitoring configuration.
-     * @param default_threshold_celsius Threshold used when no equipment-specific
+     * @brief Constructs and validates the threshold configuration.
+     * @param default_threshold Threshold used when no equipment-specific
      *        threshold exists.
-     * @param equipment_thresholds Equipment IDs and their threshold overrides.
+     * @param equipment_thresholds Equipment IDs and their corresponding thresholds.
      * @throws std::invalid_argument If a threshold is not finite or a configured
      *         equipment ID is empty.
      */
-    MonitorConfig(double default_threshold_celsius,
-                  std::unordered_map<std::string, double> equipment_thresholds)
-        : default_threshold_celsius_{default_threshold_celsius},
-          equipment_thresholds_{std::move(equipment_thresholds)}
+    ThresholdConfig(double default_threshold,
+                    std::unordered_map<std::string, double> equipment_thresholds)
+        : default_threshold_{default_threshold},
+          // why move? because we want to avoid copying the map, and we don't need to use it after
+          // this point. So we can move it into the member variable.
+          threshold_map_{std::move(equipment_thresholds)} // NOLINT(performance-move-const-arg)
     {
-        if (!std::isfinite(default_threshold_celsius_))
+        if (!std::isfinite(default_threshold_))
         {
             throw std::invalid_argument{"Default threshold must be finite"};
         }
 
-        for (const auto& [equipment_id, threshold_value] : equipment_thresholds_)
+        for (const auto& [equipment_id, threshold_value] : threshold_map_)
         {
             if (equipment_id.empty())
             {
@@ -57,21 +60,21 @@ public:
      * @return The equipment-specific threshold when present; otherwise, the
      *         default threshold.
      */
-    double get_equipment_threshold(const std::string& equipment_id) const
+    double get_threshold(const std::string& equipment_id) const
     {
-        const auto position{equipment_thresholds_.find(equipment_id)};
+        const auto position{threshold_map_.find(equipment_id)};
 
-        if (position != equipment_thresholds_.end())
+        if (position != threshold_map_.end())
         {
             return position->second;
         }
 
-        return default_threshold_celsius_;
+        return default_threshold_;
     }
 
 private:
-    double default_threshold_celsius_;
-    std::unordered_map<std::string, double> equipment_thresholds_;
+    double default_threshold_;
+    std::unordered_map<std::string, double> threshold_map_;
 };
 
 /**
@@ -156,8 +159,8 @@ private:
  */
 void print_measurement(const Measurement& measurement)
 {
-    std::cout << measurement.equipment_id() << " | t=" << measurement.timestamp_seconds() << " s"
-              << " | " << std::fixed << std::setprecision(1) << measurement.temperature_celsius()
+    std::cout << measurement.equipment_id() << " | t=" << measurement.timestamp_seconds() << " s | "
+              << std::fixed << std::setprecision(1) << measurement.temperature_celsius()
               << " deg C\n";
 }
 
@@ -186,19 +189,19 @@ void raise_alarm(const Measurement& measurement, double threshold_value)
 }
 
 /**
- * @brief Counts measurements that exceed the alarm threshold.
+ * @brief Counts measurements that exceed their selected thresholds.
  * @param measurements Measurements to examine.
  * @param config Configuration used to select the threshold for each measurement.
  * @return The number of measurements strictly above their selected thresholds.
  */
 std::size_t count_exceedances(const std::vector<Measurement>& measurements,
-                              const MonitorConfig& config)
+                              const ThresholdConfig& config)
 {
     std::size_t count{0};
 
     for (const auto& measurement : measurements)
     {
-        const double threshold_value{config.get_equipment_threshold(measurement.equipment_id())};
+        const double threshold_value{config.get_threshold(measurement.equipment_id())};
 
         if (is_above_threshold(measurement, threshold_value))
         {
@@ -210,6 +213,49 @@ std::size_t count_exceedances(const std::vector<Measurement>& measurements,
 }
 
 /**
+ * @brief Creates the measurements used by the demonstration.
+ * @return The sample measurements.
+ */
+std::vector<Measurement> create_sample_measurements()
+{
+    return {{"motor-01", 12, 85.0},
+            {"pump-02", 13, 64.0},
+            {"generator-01", 14, 92.5},
+            {"motor-01", 18, 88.0},
+            {"pump-02", 21, 79.5}};
+}
+
+/**
+ * @brief Creates the threshold configuration used by the demonstration.
+ * @return The default threshold and equipment-specific thresholds.
+ */
+ThresholdConfig create_threshold_config()
+{
+    return {80.0, {{"motor-01", 86.0}, {"generator-01", 90.0}}};
+}
+
+/**
+ * @brief Prints measurements and raises alarms for threshold exceedances.
+ * @param measurements Measurements to process.
+ * @param config Configuration used to select each equipment's threshold.
+ */
+void process_measurements(const std::vector<Measurement>& measurements,
+                          const ThresholdConfig& config)
+{
+    for (const auto& measurement : measurements)
+    {
+        print_measurement(measurement);
+
+        const double threshold_value{config.get_threshold(measurement.equipment_id())};
+
+        if (is_above_threshold(measurement, threshold_value))
+        {
+            raise_alarm(measurement, threshold_value);
+        }
+    }
+}
+
+/**
  * @brief Processes recorded measurements and reports threshold exceedances.
  * @return 0 if the demonstration succeeds; 1 if an exception is caught.
  */
@@ -217,31 +263,18 @@ int main()
 {
     try
     {
-        const std::vector<Measurement> measurements{{"motor-01", 12, 85.0},
-                                                    {"pump-02", 13, 64.0},
-                                                    {"generator-01", 14, 92.5},
-                                                    {"motor-01", 18, 88.0},
-                                                    {"pump-02", 21, 79.5}};
+        const std::vector<Measurement> measurements{create_sample_measurements()};
 
-        const MonitorConfig config{80.0, {{"motor-01", 86.0}, {"generator-01", 90.0}}};
+        const ThresholdConfig config{create_threshold_config()};
 
-        for (const auto& measurement : measurements)
-        {
-            print_measurement(measurement);
-
-            const double threshold_value{config.get_equipment_threshold(measurement.equipment_id())};
-
-            if (is_above_threshold(measurement, threshold_value))
-            {
-                raise_alarm(measurement, threshold_value);
-            }
-        }
+        process_measurements(measurements, config);
 
         std::cout << "Threshold exceedances: " << count_exceedances(measurements, config) << '\n';
     }
     catch (const std::exception& error)
     {
         std::cerr << "Error: " << error.what() << '\n';
+
         return 1;
     }
 

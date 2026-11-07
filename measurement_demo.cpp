@@ -9,7 +9,70 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
+
+/**
+ * @brief Stores the default alarm threshold and equipment-specific overrides.
+ */
+class ThresholdConfig
+{
+public:
+    /**
+     * @brief Constructs and validates the monitoring configuration.
+     * @param default_threshold Threshold used when no equipment-specific
+     *        threshold exists.
+     * @param equipment_thresholds Equipment IDs and their threshold overrides.
+     * @throws std::invalid_argument If a threshold is not finite or a configured
+     *         equipment ID is empty.
+     */
+    ThresholdConfig(double default_threshold,
+                    std::unordered_map<std::string, double> equipment_thresholds)
+        : default_threshold_{default_threshold},
+          threshold_map_{std::move(equipment_thresholds)}
+    {
+        if (!std::isfinite(default_threshold_))
+        {
+            throw std::invalid_argument{"Default threshold must be finite"};
+        }
+
+        for (const auto& [equipment_id, threshold_value] : threshold_map_)
+        {
+            if (equipment_id.empty())
+            {
+                throw std::invalid_argument{"Configured equipment ID must not be empty"};
+            }
+
+            if (!std::isfinite(threshold_value))
+            {
+                throw std::invalid_argument{"Equipment threshold must be finite"};
+            }
+        }
+    }
+
+    /**
+     * @brief Returns the threshold configured for an equipment ID.
+     * @param equipment_id Equipment whose threshold is required.
+     * @return The equipment-specific threshold when present; otherwise, the
+     *         default threshold.
+     */
+    double get_threshold(const std::string& equipment_id) const
+    {
+        const auto position{threshold_map_.find(equipment_id)};
+
+        if (position != threshold_map_.end())
+        {
+            return position->second;
+        }
+
+        return default_threshold_;
+    }
+
+private:
+    double default_threshold_;
+    std::unordered_map<std::string, double> threshold_map_;
+};
 
 /**
  * @brief A validated temperature reading associated with equipment.
@@ -99,43 +162,45 @@ void print_measurement(const Measurement& measurement)
 }
 
 /**
- * @brief Determines whether a measurement exceeds the alarm threshold.
+ * @brief Determines whether a measurement is above the alarm threshold.
  * @param measurement The measurement to evaluate.
- * @param threshold_celsius Alarm threshold in degrees Celsius.
+ * @param threshold_value Alarm threshold in degrees Celsius.
  * @return true if the measured temperature is strictly above the threshold;
  *         otherwise, false.
  */
-bool exceeds_threshold(const Measurement& measurement, double threshold_celsius)
+bool is_above_threshold(const Measurement& measurement, double threshold_value)
 {
-    return measurement.temperature_celsius() > threshold_celsius;
+    return measurement.temperature_celsius() > threshold_value;
 }
 
 /**
  * @brief Prints an alarm for a threshold-exceeding measurement.
  * @param measurement The measurement that exceeded the threshold.
- * @param threshold_celsius Alarm threshold in degrees Celsius.
+ * @param threshold_value Alarm threshold in degrees Celsius.
  */
-void report_alarm(const Measurement& measurement, double threshold_celsius)
+void raise_alarm(const Measurement& measurement, double threshold_value)
 {
     std::cout << "ALARM: " << measurement.equipment_id() << " reached " << std::fixed
               << std::setprecision(1) << measurement.temperature_celsius()
-              << " deg C; threshold is " << threshold_celsius << " deg C\n";
+              << " deg C; threshold is " << threshold_value << " deg C\n";
 }
 
 /**
  * @brief Counts measurements that exceed the alarm threshold.
  * @param measurements Measurements to examine.
- * @param threshold_celsius Alarm threshold in degrees Celsius.
- * @return The number of measurements strictly above the threshold.
+ * @param config Configuration used to select the threshold for each measurement.
+ * @return The number of measurements strictly above their selected thresholds.
  */
 std::size_t count_exceedances(const std::vector<Measurement>& measurements,
-                              double threshold_celsius)
+                              const ThresholdConfig& config)
 {
     std::size_t count{0};
 
     for (const auto& measurement : measurements)
     {
-        if (exceeds_threshold(measurement, threshold_celsius))
+        const double threshold_value{config.get_threshold(measurement.equipment_id())};
+
+        if (is_above_threshold(measurement, threshold_value))
         {
             ++count;
         }
@@ -152,28 +217,29 @@ int main()
 {
     try
     {
-        const std::vector<Measurement> measurements{
-            {"motor-01", 12, 85.0},
-            {"pump-02", 13, 64.0},
-            {"generator-01", 14, 92.5},
-            {"motor-01", 18, 88.0},
-            {"pump-02", 21, 79.5}
-        };
+        const std::vector<Measurement> measurements{{"motor-01", 12, 85.0},
+                                                    {"pump-02", 13, 64.0},
+                                                    {"generator-01", 14, 92.5},
+                                                    {"motor-01", 18, 88.0},
+                                                    {"pump-02", 21, 79.5}};
 
-        const double threshold_celsius{80.0};
+        const ThresholdConfig threshold_config{80.0, {{"motor-01", 86.0}, {"generator-01", 90.0}}};
 
         for (const auto& measurement : measurements)
         {
             print_measurement(measurement);
 
-            if (exceeds_threshold(measurement, threshold_celsius))
+            const double threshold_value{
+                threshold_config.get_threshold(measurement.equipment_id())};
+
+            if (is_above_threshold(measurement, threshold_value))
             {
-                report_alarm(measurement, threshold_celsius);
+                raise_alarm(measurement, threshold_value);
             }
         }
 
-        std::cout << "Threshold exceedances: "
-                  << count_exceedances(measurements, threshold_celsius) << '\n';
+        std::cout << "Threshold exceedances: " << count_exceedances(measurements, threshold_config)
+                  << '\n';
     }
     catch (const std::exception& error)
     {
